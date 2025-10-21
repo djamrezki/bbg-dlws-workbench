@@ -36,4 +36,13 @@ pip install -e .
 bbg-dlws run -c examples/config.bulk.yaml --dry-run
 ```
 
-> NOTE: `submitter.py` and `normalize.py` are scaffolded. Wire to actual DLWS operations next.
+## Getting fields
+
+```bash
+bbg-dlws fields -c config.yaml \
+--category "Market Data" \
+--category Fundamentals \
+--sector Equities \
+--keyword volume \
+--out ./output/fields.csv
+```

@@ -61,7 +61,7 @@ class OutputConfig(BaseModel):
 
 class LoggingConfig(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    json: bool = False
+    json_mode: bool = False
 
 class AppConfig(BaseModel):
     connection: ConnectionConfig

@@ -16,6 +16,8 @@ src/bbg_dlws_workbench/identifiers/fields_loader.py
 src/bbg_dlws_workbench/soap/__init__.py
 src/bbg_dlws_workbench/soap/builder.py
 src/bbg_dlws_workbench/soap/client.py
+src/bbg_dlws_workbench/soap/fields_criteria.py
+src/bbg_dlws_workbench/soap/fields_ops.py
 src/bbg_dlws_workbench/soap/poller.py
 src/bbg_dlws_workbench/soap/registry.py
 src/bbg_dlws_workbench/soap/submitter.py
