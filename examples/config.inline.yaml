@@ -1,0 +1,45 @@
+
+connection:
+  wsdl_url: https://service.bloomberg.com/assets/dl/dlws.wsdl
+  endpoint: https://dlws.bloomberg.com/datalicense/service
+  cert:
+    p12_path: ./secrets/bbg_client.p12
+    p12_password: ${BBG_P12_PASSWORD}
+
+request:
+  kind: history
+  identifiers:
+    source: inline
+    inline:
+      - { id: AUDCAD, yellow_key: Currency, type: TICKER }
+      - { id: CADDKK, yellow_key: Currency, type: TICKER }
+  fields:
+    inline:
+      - PX_LAST
+      - TICKER
+  overrides:
+    - name: EQY_FUND_CRNCY
+      value: USD
+  history_params:
+    start: 2024-01-01
+    end: 2024-12-31
+    periodicity: DAILY
+
+chunking:
+  enabled: true
+  max_identifiers_per_request: 500
+
+polling:
+  attempts: 120
+  interval_seconds: 5
+  per_attempt_timeout_seconds: 15
+
+output:
+  uri: ./output/bulk_prices.csv
+  format: csv
+  include_raw_xml: true
+  append_mode: false
+
+logging:
+  level: INFO
+  json: false

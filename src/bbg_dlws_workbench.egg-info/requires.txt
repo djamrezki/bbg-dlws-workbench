@@ -1,0 +1,6 @@
+typer>=0.12
+pydantic>=2.7
+pyyaml>=6.0.1
+zeep>=4.3.1
+cryptography>=43.0.0
+requests>=2.32.2

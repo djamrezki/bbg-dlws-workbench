@@ -1,0 +1,49 @@
+
+connection:
+  wsdl_url: https://service.bloomberg.com/assets/dl/dlws.wsdl
+  endpoint: https://dlws.bloomberg.com/datalicense/service
+  cert:
+    p12_path: ./secrets/bbg_client.p12
+    p12_password: ${BBG_P12_PASSWORD}
+
+request:
+  kind: history
+  identifiers:
+    source: csv
+    csv:
+      path: ./examples/ids.sample.csv
+      id_column: id
+      yellow_key_column: yellow_key
+      type_column: type
+      extra_columns: []
+    inline: []
+  fields:
+    inline: []
+    file: ./examples/fields.sample.txt
+  overrides:
+    - name: EQY_FUND_CRNCY
+      value: USD
+  history_params:
+    duration:
+      days: 3
+    periodicity: DAILY
+    programFlag: adhoc
+
+chunking:
+  enabled: true
+  max_identifiers_per_request: 500
+
+polling:
+  attempts: 120
+  interval_seconds: 5
+  per_attempt_timeout_seconds: 15
+
+output:
+  uri: ./output/bulk_prices.csv
+  format: csv
+  include_raw_xml: true
+  append_mode: false
+
+logging:
+  level: INFO
+  json: false

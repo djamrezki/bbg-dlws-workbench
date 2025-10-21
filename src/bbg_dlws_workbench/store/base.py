@@ -1,0 +1,6 @@
+
+from typing import Protocol, Iterable, Mapping
+
+class Store(Protocol):
+    def write_text(self, uri: str, text: str) -> None: ...
+    def write_rows_to_csv(self, uri: str, rows: Iterable[Mapping], append: bool) -> None: ...

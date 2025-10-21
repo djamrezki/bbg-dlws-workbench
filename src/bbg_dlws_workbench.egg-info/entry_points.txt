@@ -1,0 +1,2 @@
+[console_scripts]
+bbg-dlws = bbg_dlws_workbench.cli:app

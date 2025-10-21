@@ -1,0 +1,23 @@
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bbg-dlws-workbench"
+version = "0.1.0"
+description = "A workbench for Bloomberg Data License Web Services (DLWS): build requests, poll responses, convert to CSV."
+authors = [{ name = "Djamel", email = "you@example.com" }]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pyyaml>=6.0.1",
+    "zeep>=4.3.1",
+    "cryptography>=43.0.0",
+    "requests>=2.32.2"
+]
+
+[project.scripts]
+bbg-dlws = "bbg_dlws_workbench.cli:app"
