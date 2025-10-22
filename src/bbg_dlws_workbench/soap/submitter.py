@@ -7,7 +7,7 @@ from .registry import OP_HANDLERS
 logger = logging.getLogger("bbg-dlws-workbench.submitter")
 
 
-def submit_request(client, endpoint: str, kind: str, payload: Dict) -> str:
+def submit_request(client, kind: str, payload: Dict) -> str:
     """
     Submit an asynchronous Bloomberg DLWS request (history or data).
     Returns the responseId / jobId to poll later.
@@ -24,7 +24,7 @@ def submit_request(client, endpoint: str, kind: str, payload: Dict) -> str:
         logger.error(f"SOAP Fault during {method_name}: {e.message}")
         raise
     except TransportError as e:
-        logger.error(f"Transport error contacting Bloomberg endpoint {endpoint}: {e}")
+        logger.error(f"Transport error contacting Bloomberg: {e}")
         raise
 
     # The DLWS 'submit' responses typically include <responseId> inside the returned object.
@@ -71,7 +71,7 @@ def get_response_by_id(client, kind: str, response_id: str, timeout: int) -> Any
     return resp
 
 
-def call_sync(client, endpoint: str, kind: str, payload: Dict, timeout: int) -> Any:
+def call_sync(client, kind: str, payload: Dict, timeout: int) -> Any:
     """
     Execute a synchronous DLWS request (e.g., getFields).
     Returns the SOAP response object directly.
@@ -88,7 +88,7 @@ def call_sync(client, endpoint: str, kind: str, payload: Dict, timeout: int) -> 
         logger.error(f"SOAP Fault during {method_name}: {e.message}")
         raise
     except TransportError as e:
-        logger.error(f"Transport error contacting Bloomberg endpoint {endpoint}: {e}")
+        logger.error(f"Transport error contacting Bloomberg: {e}")
         raise
 
     logger.info(f"Synchronous call {method_name} completed successfully.")
