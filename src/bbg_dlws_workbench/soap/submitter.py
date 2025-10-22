@@ -86,6 +86,7 @@ def call_sync(client, kind: str, payload: Dict, timeout: int) -> Any:
     """
     Execute a synchronous DLWS request (e.g., getFields).
     Returns the SOAP response object directly.
+    Uses per-call timeout by temporarily setting transport.operation_timeout.
     """
     op = OP_HANDLERS[kind]
     method_name = op["call"]
@@ -93,17 +94,28 @@ def call_sync(client, kind: str, payload: Dict, timeout: int) -> Any:
 
     logger.info(f"Calling synchronous operation {method_name} for {kind}…")
 
+    # Temporarily set per-call timeout
+    transport = getattr(client, "transport", None)
+    prev_timeout = getattr(transport, "operation_timeout", None) if transport else None
+    if transport is not None and timeout is not None:
+        transport.operation_timeout = timeout
+
     try:
-        resp = method(**payload, _timeout=timeout)
+        resp = method(**payload)
     except Fault as e:
         logger.error(f"SOAP Fault during {method_name}: {e.message}")
         raise
     except TransportError as e:
         logger.error(f"Transport error contacting Bloomberg: {e}")
         raise
+    finally:
+        # Restore previous timeout
+        if transport is not None:
+            transport.operation_timeout = prev_timeout
 
     logger.info(f"Synchronous call {method_name} completed successfully.")
     return resp
+
 
 
 # ----------------- Helper -----------------
