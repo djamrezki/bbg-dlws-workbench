@@ -16,8 +16,15 @@ from .soap.registry import OP_HANDLERS
 from .soap.builder import build_payload
 from .soap.fields_criteria import build_fields_criteria
 from .soap.fields_ops import get_fields
+import logging, sys
 
 app = typer.Typer(help="Bloomberg DLWS Workbench", no_args_is_help=True)
+
+logging.basicConfig(
+    level=logging.INFO,  # or DEBUG for full verbosity
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 
 @app.command("run")
 def run(
