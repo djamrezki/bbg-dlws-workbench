@@ -14,7 +14,7 @@ from .soap.poller import Poller
 from .transform.normalize import soap_to_rows
 from .soap.registry import OP_HANDLERS
 from .soap.builder import build_payload
-from .soap.fields_criteria import build_fields_criteria
+from .soap.fields_criteria import build_fields_criteria_zeep
 from .soap.fields_ops import get_fields
 import logging, sys
 
@@ -163,38 +163,28 @@ def fields(
     """
     Fetch Bloomberg field mnemonics & metadata via getFields(criteria=...).
     """
-    # 1) Load config (we only need the connection block; output is optional)
     with open(config, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     cfg = AppConfig.model_validate(raw)
 
-    # 2) Build Zeep client (p12 cert)
     client = create_client(
         wsdl_url=str(cfg.connection.wsdl_url),
         p12_path=str(cfg.connection.cert.p12_path),
         p12_password=cfg.connection.cert.p12_password,
     )
 
-    # 3) Build criteria from CLI flags
-    criteria = build_fields_criteria(categories=category, sectors=sector, keywords=keyword)
+    criteria = build_fields_criteria_zeep(client, categories=category, sectors=sector, keywords=keyword)
 
-    # 4) Call getFields
-    resp = get_fields(client, criteria=criteria or None)
+    resp = get_fields(client, criteria=criteria)
 
-    # 5) Normalize → rows (reuse 'fundamentals_headers' shape)
     rows = list(soap_to_rows("fundamentals_headers", resp, []))
-
     if not rows:
         typer.echo("No fields found with the given criteria.")
         raise typer.Exit(code=0)
 
-    # 6) Decide output target
     uri = out or getattr(cfg.output, "uri", None) or "./output/fields.csv"
-
-    # 7) Write CSV via your Store abstraction
     store = resolve_store(uri)
     store.write_rows_to_csv(uri, rows, append=False)
-
     typer.echo(f"Wrote {len(rows)} fields to: {uri}")
 
 
