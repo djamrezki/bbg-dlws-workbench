@@ -9,7 +9,7 @@ def build_fields_criteria(
     if categories:
         crit["dlCategories"] = categories
     if sectors:
-        crit["marketSectors"] = sectors
+        crit["marketsectors"] = sectors
     if keywords:
-        crit["keywords"] = keywords
+        crit["keyword"] = keywords
     return crit

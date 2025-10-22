@@ -179,7 +179,7 @@ def fields(
     criteria = build_fields_criteria(categories=category, sectors=sector, keywords=keyword)
 
     # 4) Call getFields
-    resp = get_fields(client, criteria=criteria or None, timeout=timeout)
+    resp = get_fields(client, criteria=criteria or None)
 
     # 5) Normalize → rows (reuse 'fundamentals_headers' shape)
     rows = list(soap_to_rows("fundamentals_headers", resp, []))
