@@ -44,30 +44,41 @@ def get_response_by_id(client, kind: str, response_id: str, timeout: int) -> Any
     """
     Retrieve an asynchronous DLWS response using its responseId.
     Returns the SOAP response object if ready; otherwise None.
+    Uses a per-attempt timeout by temporarily setting the transport's operation_timeout.
     """
     op = OP_HANDLERS[kind]
     method_name = op["retrieve"]
     method = getattr(client.service, method_name)
 
+    # Per-attempt timeout applied to this call only
+    transport = getattr(client, "transport", None)
+    prev_timeout = getattr(transport, "operation_timeout", None) if transport else None
+    if transport is not None and timeout is not None:
+        transport.operation_timeout = timeout  # seconds
+
     logger.debug(f"Polling {kind} responseId={response_id} with timeout={timeout}s…")
 
     try:
-        resp = method(responseId=response_id, _timeout=timeout)
+        # No _timeout kwarg here—use the transport's operation_timeout
+        resp = method(responseId=response_id)
     except Fault as e:
-        # Bloomberg returns Fault when job is not ready yet or invalid
-        logger.debug(f"SOAP Fault during retrieve (possibly not ready yet): {e}")
+        # Not ready or other SOAP condition — treat as "keep polling"
+        logger.debug(f"SOAP Fault during {method_name}: {e}")
         return None
     except TransportError as e:
         logger.warning(f"Transport error while polling {response_id}: {e}")
         return None
+    finally:
+        # Restore previous timeout to avoid leaking per-attempt settings
+        if transport is not None:
+            transport.operation_timeout = prev_timeout
 
-    # Depending on WSDL version, may include .status or .processingStatus
     status = getattr(resp, "status", None) or getattr(resp, "processingStatus", None)
     if status and str(status).lower() not in ("completed", "success", "done"):
         logger.debug(f"{kind} responseId={response_id} status={status} (not ready yet)")
         return None
 
-    logger.info(f"{kind} responseId={response_id} ready. Returning payload.")
+    logger.info(f"{kind} responseId={response_id} ready.")
     return resp
 
 

@@ -17,13 +17,12 @@ request:
     inline:
       - PX_LAST
       - TICKER
-  overrides:
-    - name: EQY_FUND_CRNCY
-      value: USD
   history_params:
-    start: 2024-01-01
-    end: 2024-12-31
-    periodicity: DAILY
+    daterange:
+      duration:
+        days: 3
+    programflag: adhoc
+
 
 chunking:
   enabled: true

@@ -20,14 +20,11 @@ request:
   fields:
     inline: []
     file: ./examples/fields.sample.txt
-  overrides:
-    - name: EQY_FUND_CRNCY
-      value: USD
   history_params:
-    duration:
-      days: 3
-    periodicity: DAILY
-    programFlag: adhoc
+    daterange:
+      duration:
+        days: 3
+    programflag: adhoc
 
 chunking:
   enabled: true
