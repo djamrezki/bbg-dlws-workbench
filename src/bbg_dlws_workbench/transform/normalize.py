@@ -3,9 +3,8 @@ from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 def soap_to_rows(kind: str, soap_response: Any, request_fields: List[str]) -> Iterable[Dict]:
     """
-    Default behavior: build rows using the fields *as received in the SOAP response*
-    (response order), not the requested fields. We still prepend an identifier (and
-    date for history) when available.
+    Build rows using the fields as received in the SOAP response (response order),
+    not the requested fields. We still prepend identifier (and date for history).
     """
     if kind == "history":
         yield from parse_history(soap_response)
@@ -17,94 +16,189 @@ def soap_to_rows(kind: str, soap_response: Any, request_fields: List[str]) -> It
         return []
 
 
-# -------------------- HISTORY --------------------
+# -------------------- HISTORY (DLWS WSDL-compliant) --------------------
 
 def parse_history(resp: Any) -> Iterator[Dict]:
     """
-    Yields rows like:
-      identifier, date, <fields...in the order they appear in the response>
+    WSDL shape (RetrieveGetHistoryResponse):
+      - responseId
+      - headers (GetHistoryHeaders)
+      - fields (Fields): fields.field[] (ordered)
+      - instrumentDatas (HistInstrumentDatas):
+           instrumentData (HistInstrumentData) {
+             code (string)
+             instrument (Instrument { id, ... })
+             macro (optional)
+             pricingSource (optional)
+             date (xs:date)
+             data[] (HistData { @value })
+           }
+
+    Row produced:
+      identifier, date, <field1>, <field2>, ...
+      where field names come from response.fields.field (positional mapping to data[])
     """
     if not resp:
         return
 
-    # Try a few common shapes for DLWS history responses.
-    # You should tighten these once you inspect real objects with zeep.
-    histories = (
-            _get_attr(resp, ["histories", "history", "data"])
-            or []
-    )
+    # 1) Resolve ordered field names for history
+    fields_node = _get_attr(resp, ["fields"])
+    field_names: List[str] = []
+    if fields_node:
+        # Prefer simple string list: fields.field[]
+        f_list = _get_attr(fields_node, ["field"]) or []
+        if _is_iterable(f_list):
+            field_names = [str(x) for x in f_list if x is not None]
+        # Fallback: fieldWithOverrides[].field if present
+        if not field_names:
+            f_ovr_list = _get_attr(fields_node, ["fieldWithOverrides"]) or []
+            if _is_iterable(f_ovr_list):
+                for fo in f_ovr_list:
+                    fname = _get_any(fo, ["field", "mnemonic", "name", "id"])
+                    if fname:
+                        field_names.append(str(fname))
 
-    # If zeep gave us something iterable (and not a plain dict/str)
-    if _is_iterable(histories):
-        for h in histories:
-            ident = _extract_identifier_from_security(
-                _get_attr(h, ["security", "instrument"])
-            ) or ""
-            entries = _get_attr(h, ["dates", "values"]) or []
-            if _is_iterable(entries):
-                for e in entries:
-                    date = _get_attr(e, ["date", "pricingDate"])
-                    # Extract ordered field pairs from e (or e.fields if present)
-                    field_pairs = _extract_ordered_fields(_get_attr(e, ["fields"]) or e)
-                    row: Dict[str, Any] = {}
-                    row["identifier"] = ident
-                    row["date"] = _fmt_date(date)
-                    # preserve response order of fields
-                    for name, val in field_pairs:
-                        if name not in row:  # keep first occurrence in case of dupes
-                            row[name] = val
-                    yield row
-        return
+    # 2) Iterate instrumentDatas.instrumentData[]
+    container = _get_attr(resp, ["instrumentDatas"]) or resp
+    items = _get_attr(container, ["instrumentData"]) or []
 
-    # Fallback for dict-like
-    if isinstance(resp, dict):
-        for h in resp.get("histories", resp.get("history", [])):
-            ident = _extract_identifier_from_security(h.get("security") or h.get("instrument")) or ""
-            for e in h.get("dates", h.get("values", [])):
-                date = e.get("date") or e.get("pricingDate")
-                field_pairs = _extract_ordered_fields(e.get("fields") or e)
-                row = {"identifier": ident, "date": _fmt_date(date)}
-                for name, val in field_pairs:
-                    if name not in row:
-                        row[name] = val
-                yield row
+    if _is_iterable(items):
+        for it in items:
+            ident = (
+                    _extract_identifier_from_security(_get_attr(it, ["instrument"]))
+                    or str(_get_attr(it, ["code"]) or "")
+            )
+            date = _fmt_date(_get_attr(it, ["date"]))
+            hist_values = _get_attr(it, ["data"]) or []
 
+            # values are HistData elements with @value
+            values: List[Any] = []
+            if _is_iterable(hist_values):
+                for hv in hist_values:
+                    values.append(_get_any(hv, ["value"]))
 
-# -------------------- DATA --------------------
+            row: Dict[str, Any] = {"identifier": ident, "date": date}
 
-def parse_data(resp: Any) -> Iterator[Dict]:
-    """
-    Yields rows like:
-      identifier, <fields...in the order they appear in the response>
-    """
-    if not resp:
-        return
-
-    block = _get_attr(resp, ["dataResponse", "responses"]) or resp
-    securities = _get_attr(block, ["securityData", "securities"]) or []
-
-    if _is_iterable(securities):
-        for s in securities:
-            ident = _extract_identifier_from_security(
-                _get_attr(s, ["security", "instrument"])
-            ) or ""
-            field_source = _get_attr(s, ["fieldData"]) or s
-            field_pairs = _extract_ordered_fields(field_source)
-            row: Dict[str, Any] = {"identifier": ident}
-            for name, val in field_pairs:
-                if name not in row:
-                    row[name] = val
+            if field_names and len(values) >= len(field_names):
+                # Map by position
+                for i, fname in enumerate(field_names):
+                    if fname and fname not in row:
+                        row[fname] = values[i] if i < len(values) else None
+            else:
+                # Fallback: position-based generic columns
+                for i, val in enumerate(values, start=1):
+                    key = f"COL_{i}"
+                    if key not in row:
+                        row[key] = val
             yield row
         return
 
+    # 3) Dict-like fallback
     if isinstance(resp, dict):
-        for s in resp.get("dataResponse", {}).get("securityData", []):
-            ident = _extract_identifier_from_security(s.get("security") or s.get("instrument")) or ""
-            field_pairs = _extract_ordered_fields(s.get("fieldData") or s)
+        items = (
+                resp.get("instrumentDatas", {}).get("instrumentData", [])
+                or resp.get("instrumentData", [])
+        )
+        for it in items:
+            ident = (
+                    _extract_identifier_from_security((it.get("instrument") or {}))
+                    or str(it.get("code") or "")
+            )
+            date = _fmt_date(it.get("date"))
+            values = []
+            for hv in it.get("data", []):
+                values.append((hv.get("value") if isinstance(hv, dict) else hv))
+
+            row = {"identifier": ident, "date": date}
+            if field_names and len(values) >= len(field_names):
+                for i, fname in enumerate(field_names):
+                    if fname and fname not in row:
+                        row[fname] = values[i] if i < len(values) else None
+            else:
+                for i, val in enumerate(values, start=1):
+                    key = f"COL_{i}"
+                    if key not in row:
+                        row[key] = val
+            yield row
+
+
+# -------------------- DATA (DLWS WSDL-compliant) --------------------
+
+def parse_data(resp: Any) -> Iterator[Dict]:
+    """
+    WSDL shape (RetrieveGetDataResponse):
+      - fields (Fields)   [may be present, but each data item already has @field]
+      - instrumentDatas (InstrumentDatas):
+           instrumentData (InstrumentData) {
+             code (string)
+             instrument (Instrument { id, ... })
+             macro (optional)
+             data[] (Data {
+               @field, @value, @isArray, @rows,
+               bulkarray? { @columns, data[] { @value, @type } }
+             })
+           }
+
+    Row produced per instrument:
+      identifier, <FIELD_A>, <FIELD_B>, ...
+      If a Data item is an array, we flatten bulkarray into a JSON-like string.
+    """
+    if not resp:
+        return
+
+    container = _get_attr(resp, ["instrumentDatas"]) or resp
+    items = _get_attr(container, ["instrumentData"]) or []
+
+    if _is_iterable(items):
+        for it in items:
+            ident = (
+                    _extract_identifier_from_security(_get_attr(it, ["instrument"]))
+                    or str(_get_attr(it, ["code"]) or "")
+            )
+
+            datas = _get_attr(it, ["data"]) or []
+            row: Dict[str, Any] = {"identifier": ident}
+
+            if _is_iterable(datas):
+                for d in datas:
+                    fname = _get_any(d, ["field"])
+                    if not fname:
+                        # Skip nameless cells
+                        continue
+                    val = _get_any(d, ["value"])
+                    # Arrays: flatten bulkarray → JSON-like string to keep single CSV cell
+                    bulk = _get_attr(d, ["bulkarray"])
+                    if bulk is not None:
+                        val = _format_bulkarray(bulk)
+                    if fname not in row:
+                        row[str(fname)] = val
+            yield row
+        return
+
+    # Dict-like fallback
+    if isinstance(resp, dict):
+        items = (
+                resp.get("instrumentDatas", {}).get("instrumentData", [])
+                or resp.get("instrumentData", [])
+        )
+        for it in items:
+            ident = (
+                    _extract_identifier_from_security(it.get("instrument") or {})
+                    or str(it.get("code") or "")
+            )
             row = {"identifier": ident}
-            for name, val in field_pairs:
-                if name not in row:
-                    row[name] = val
+            for d in it.get("data", []):
+                if not isinstance(d, dict):
+                    continue
+                fname = d.get("field")
+                if not fname:
+                    continue
+                val = d.get("value")
+                bulk = d.get("bulkarray")
+                if bulk is not None:
+                    val = _format_bulkarray(bulk)
+                if fname not in row:
+                    row[fname] = val
             yield row
 
 
@@ -114,8 +208,6 @@ def parse_fundamentals_headers(resp: Any) -> Iterator[Dict]:
     """
     Returns metadata rows as received. Typical columns:
       field, displayName, category, datatype, description
-    We keep the order: field, displayName, category, datatype, description
-    (missing keys left blank).
     """
     if not resp:
         return
@@ -183,26 +275,21 @@ def _get_any(obj: Any, keys: List[str]):
 def _extract_identifier_from_security(sec: Any) -> str:
     if not sec:
         return ""
-    # Typical keys: id / security / ticker
-    for k in ("id", "security", "ticker"):
+    # Instrument has an 'id' per WSDL
+    for k in ("id", "security", "ticker", "code"):
         v = getattr(sec, k, None)
         if v:
             return str(v)
     if isinstance(sec, dict):
-        for k in ("id", "security", "ticker"):
+        for k in ("id", "security", "ticker", "code"):
             if k in sec and sec[k]:
                 return str(sec[k])
     return ""
 
 def _extract_ordered_fields(obj: Any) -> List[Tuple[str, Any]]:
     """
-    Return a list of (fieldName, value) in the order they appear in the response.
-    Tries multiple common shapes:
-      - dict-like with field mnemonics as keys
-      - iterable of items with (field/name/mnemonic, value/text/val)
-      - zeep object with attributes (fallback heuristic)
+    (Kept for completeness; not used by the new WSDL-compliant paths.)
     """
-    # 1) dict-like: keep insertion order from the source if possible
     if isinstance(obj, dict):
         pairs: List[Tuple[str, Any]] = []
         for k, v in obj.items():
@@ -211,7 +298,6 @@ def _extract_ordered_fields(obj: Any) -> List[Tuple[str, Any]]:
         if pairs:
             return pairs
 
-    # 2) iterable of name/value items
     if _is_iterable(obj):
         pairs = []
         for item in obj:
@@ -222,7 +308,6 @@ def _extract_ordered_fields(obj: Any) -> List[Tuple[str, Any]]:
         if pairs:
             return pairs
 
-    # 3) zeep object with attributes that look like fields (heuristic)
     if hasattr(obj, "__dict__"):
         pairs = []
         for k, v in obj.__dict__.items():
@@ -234,5 +319,45 @@ def _extract_ordered_fields(obj: Any) -> List[Tuple[str, Any]]:
     return []
 
 def _looks_like_fieldname(name: str) -> bool:
-    # Bloomberg field mnemonics tend to be ALLCAPS with underscores, but we keep this permissive.
     return isinstance(name, str) and name == name.upper() and any(c.isalpha() for c in name)
+
+def _format_bulkarray(bulk: Any) -> str:
+    """
+    Convert BulkArray to a compact JSON-like string:
+      [[r1c1, r1c2, ...], [r2c1, r2c2, ...], ...]
+    """
+    # Extract entries and optional columns
+    cols = _get_any(bulk, ["columns"])
+    try:
+        cols = int(cols) if cols is not None else None
+    except Exception:
+        cols = None
+
+    entries = _get_attr(bulk, ["data"]) or []
+    flat_vals: List[Any] = []
+    if _is_iterable(entries):
+        for e in entries:
+            flat_vals.append(_get_any(e, ["value"]))
+    elif isinstance(entries, list):
+        for e in entries:
+            if isinstance(e, dict):
+                flat_vals.append(e.get("value"))
+            else:
+                flat_vals.append(e)
+
+    if cols and cols > 0:
+        rows: List[List[Any]] = []
+        for i in range(0, len(flat_vals), cols):
+            rows.append(flat_vals[i : i + cols])
+        return "[" + ",".join("[" + ",".join(_safe_scalar(x) for x in r) + "]" for r in rows) + "]"
+
+    # No column hint: return flat list
+    return "[" + ",".join(_safe_scalar(x) for x in flat_vals) + "]"
+
+def _safe_scalar(x: Any) -> str:
+    if x is None:
+        return "null"
+    s = str(x)
+    # Minimal escaping of quotes/backslashes for CSV-safety inside a single cell
+    s = s.replace("\\", "\\\\").replace("\"", "\\\"")
+    return f"\"{s}\""
